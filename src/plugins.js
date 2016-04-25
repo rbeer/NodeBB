@@ -7,6 +7,7 @@ var winston = require('winston');
 var semver = require('semver');
 var express = require('express');
 var nconf = require('nconf');
+var _ = require('underscore');
 
 var db = require('./database');
 var emitter = require('./emitter');
@@ -35,6 +36,7 @@ var middleware;
 	Plugins.customLanguageFallbacks = {};
 	Plugins.libraryPaths = [];
 	Plugins.versionWarning = [];
+	Plugins.settingsPages = {};
 
 	Plugins.initialized = false;
 
@@ -84,10 +86,15 @@ var middleware;
 		Plugins.clientScripts.length = 0;
 		Plugins.acpScripts.length = 0;
 		Plugins.libraryPaths.length = 0;
+		Plugins.settingsPages = {};
 
 		Plugins.registerHook('core', {
 			hook: 'static:app.load',
 			method: addLanguages
+		});
+		Plugins.registerHook('core', {
+			hook: 'filter:admin.header.build',
+			method: buildSettingsHeader
 		});
 
 		async.waterfall([
@@ -140,6 +147,17 @@ var middleware;
 			app.render.apply(app, arguments);
 		};
 
+		Object.keys(Plugins.settingsPages).forEach(function(pluginId) {
+			router.get('/admin' + Plugins.settingsPages[pluginId].route,
+									middleware.admin.buildHeader, middleware.isAdmin, middleware.applyCSRF,
+									Plugins.settingsPages[pluginId].middlewares,
+									Plugins.settingsPages[pluginId].renderMethod);
+			router.get('/api/admin' + Plugins.settingsPages[pluginId].route,
+									middleware.isAdmin, middleware.applyCSRF,
+									Plugins.settingsPages[pluginId].middlewares,
+									Plugins.settingsPages[pluginId].renderMethod);
+		});
+
 		Plugins.fireHook('static:app.load', {app: app, router: router, middleware: middleware, controllers: controllers}, function(err) {
 			if (err) {
 				return winston.error('[plugins] Encountered error while executing post-router plugins hooks: ' + err.message);
@@ -149,6 +167,47 @@ var middleware;
 			winston.verbose('[plugins] All plugins reloaded and rerouted');
 			callback();
 		});
+	};
+
+	function buildSettingsHeader(custom_header, callback) {
+		Object.keys(Plugins.settingsPages).forEach(function(pluginId) {
+			custom_header.plugins.push({
+				name: Plugins.settingsPages[pluginId].name,
+				route: Plugins.settingsPages[pluginId].route
+			});
+		});
+		callback(null, custom_header);
+	}
+
+	Plugins.getMethodRef = function(id, method) {
+		if (typeof method === 'string' && method.length > 0) {
+			method = method.split('.').reduce(function(memo, prop) {
+				if (memo && memo[prop]) {
+					return memo[prop];
+				} else {
+					// Couldn't find method by path, aborting
+					return null;
+				}
+			}, Plugins.libraries[id]);
+		}
+		return method;
+	};
+
+	Plugins.sanitizeSettingsPages = function(custom_header, callback) {
+		_.each(custom_header.plugins, function(plugin_header) {
+			var settingsPage = _.findWhere(Plugins.settingsPages, {route: plugin_header.route});
+			if (settingsPage) {
+				winston.warn('[plugin/' + plugin_header.name + '] deprecation warning, no need to use filter:admin.header.build when "settingsPage" is defined in plugin.json!')
+			} else {
+				var e = new Error('dummy');
+				var stack = e.stack.replace(/^[^\(]+?[\n$]/gm, '')
+			      .replace(/^\s+at\s+/gm, '')
+			      .replace(/^Object.<anonymous>\s*\(/gm, '{anonymous}()@')
+			      .split('\n');
+			  console.log(stack);
+			}
+		});
+		callback(null, custom_header);
 	};
 
 	Plugins.getTemplates = function(callback) {

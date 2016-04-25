@@ -25,10 +25,10 @@ pluginsController.get = function(req, res, next) {
 
 				next(null, plugins);
 			});
-		},
+		}/*,
 		custom_header: function(next) {
 			plugins.fireHook('filter:admin.header.build', {plugins: []}, next);
-		}
+		}*/
 	}, function(err, payload) {
 		if (err) {
 			return next(err);
@@ -38,8 +38,14 @@ pluginsController.get = function(req, res, next) {
 			});
 
 		var installedPlugins = payload.compatible.filter(function(plugin) {
+				if (plugin.id === 'nodebb-plugin-smoothshorts') {
+					console.log(plugins.settingsPages[plugin.id]);
+				}
 				return plugin.installed;
-			}).map(function(plugin) {
+			}/*).map(function(plugin) {
+				if (plugin.id === 'nodebb-plugin-smoothshorts') {
+					console.log(plugins.libraries[plugin.id]);
+				}
 				var routeMatchRX = /nodebb-(?:plugin|rewards|theme|widget)-(.*)/;
 				var routeToMatch = '/plugins/' + plugin.id.match(routeMatchRX)[1];
 
@@ -48,7 +54,7 @@ pluginsController.get = function(req, res, next) {
 				}
 
 				return plugin;
-			});
+			}*/);
 
 		res.render('admin/extend/plugins' , {
 			installed: installedPlugins,

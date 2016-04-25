@@ -7,7 +7,8 @@ var fs = require('fs'),
 	winston = require('winston'),
 	nconf = require('nconf'),
 	_ = require('underscore'),
-	file = require('../file');
+	file = require('../file'),
+	hotswap = require('../hotswap');
 
 var utils = require('../../public/src/utils'),
 	meta = require('../meta');
@@ -47,6 +48,9 @@ module.exports = function(Plugins) {
 				},
 				function(next) {
 					loadLanguages(pluginData, next);
+				},
+				function(next) {
+					registerSettingsPage(pluginData, pluginPath, next);
 				}
 			], function(err) {
 				if (err) {
@@ -84,9 +88,7 @@ module.exports = function(Plugins) {
 		var libraryPath = path.join(pluginPath, pluginData.library);
 
 		try {
-			if (!Plugins.libraries[pluginData.id]) {
-				Plugins.requireLibrary(pluginData.id, libraryPath);
-			}
+			ensureLibraryLoaded(pluginData.id, libraryPath);
 
 			if (Array.isArray(pluginData.hooks) && pluginData.hooks.length > 0) {
 				async.each(pluginData.hooks, function(hook, next) {
@@ -96,8 +98,7 @@ module.exports = function(Plugins) {
 				callback();
 			}
 		} catch(err) {
-			winston.error(err.stack);
-			winston.warn('[plugins] Unable to parse library for: ' + pluginData.id);
+			logLibraryLoadErr(pluginData.id, err.stack);
 			callback();
 		}
 	}
@@ -231,6 +232,57 @@ module.exports = function(Plugins) {
 				callback();
 			});
 		});
+	}
+
+	function registerSettingsPage(pluginData, pluginPath, callback) {
+		if (!pluginData.library) {
+			return callback();
+		}
+		/*
+			"settingsPage": {
+		    "name": "SmoothShorts",
+		    "renderMethod": "admin.renderAdmin"
+		    "middlewares": [
+		      "admin.loggerWare"
+		    ]
+		  }
+	  */
+		var settingsPage = pluginData.settingsPage;
+		var libraryPath = path.join(pluginPath, pluginData.library);
+		var settingsRouteRX = /nodebb-(?:plugin|rewards|theme|widget)-(.*)/;
+
+		if (settingsPage) {
+			try {
+				ensureLibraryLoaded(pluginData.id, libraryPath);
+				Plugins.settingsPages[pluginData.id] = {};
+				Plugins.settingsPages[pluginData.id].name = settingsPage.name;
+				Plugins.settingsPages[pluginData.id].route = '/plugins/' + pluginData.id.match(settingsRouteRX)[1];
+				Plugins.settingsPages[pluginData.id].renderMethod = Plugins.getMethodRef(pluginData.id, settingsPage.renderMethod);
+				Plugins.settingsPages[pluginData.id].middlewares = [];
+				if (Array.isArray(settingsPage.middlewares) && settingsPage.middlewares.length > 0) {
+					async.each(settingsPage.middlewares, function(middleware, next) {
+						Plugins.settingsPages[pluginData.id].middlewares.push(Plugins.getMethodRef(pluginData.id, middleware));
+						next();
+					}, callback);
+				}
+			} catch (err) {
+				logLibraryLoadErr(pluginData.id, err.stack);
+			}
+
+		} else {
+			callback();
+		}
+	}
+
+	function ensureLibraryLoaded(id, libraryPath) {
+		if (!Plugins.libraries[id]) {
+				Plugins.requireLibrary(id, libraryPath);
+		}
+	}
+
+	function logLibraryLoadErr(id, stack) {
+		winston.error(stack);
+		winston.warn('[plugins] Unable to parse library for: ' + id);
 	}
 
 	Plugins.loadPluginInfo = function(pluginPath, callback) {
